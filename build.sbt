@@ -299,7 +299,6 @@ lazy val marathon = (project in file("."))
     )
   )
 
-
 lazy val `mesos-simulation` = (project in file("mesos-simulation"))
   .configs(IntegrationTest)
   .configs(UnstableTest)
