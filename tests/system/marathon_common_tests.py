@@ -200,7 +200,7 @@ def test_docker_dns_mapping(marathon_service_name):
     status, output = shakedown.run_command_on_master(bad_cmd)
     assert not status
 
-    @retrying.retry(stop_max_delay=10000)
+    @retrying.retry(stop_max_attempt_number=30)
     def check_dns():
         cmd = 'ping -c 1 {}.{}.mesos'.format(app_id, marathon_service_name)
         shakedown.wait_for_dns('{}.{}.mesos'.format(app_id, marathon_service_name))

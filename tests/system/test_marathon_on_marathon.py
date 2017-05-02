@@ -22,6 +22,7 @@ def marathon_service_name():
 
     common.ensure_mom()
     with shakedown.marathon_on_marathon():
+        shakedown.wait_for_service_endpoint('marathon-user')
         yield 'marathon-user'
         shakedown.wait_for_service_endpoint('marathon-user')
         clear_marathon()
