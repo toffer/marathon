@@ -109,6 +109,38 @@ def test_launch_app_on_public_agent():
     assert task_ip in shakedown.get_public_agents()
 
 
+@pytest.mark.usefixtures("event_fixture")
+def test_event_channel():
+    """ Tests the event channel.  The way events are verified is by streaming the events
+        to a test.txt file.   The fixture ensures the file is removed before and after the test.
+        events checked are connecting, deploying a good task and killing a task.
+    """
+    app_def = common.app_mesos()
+    app_id = app_def['id']
+
+    client = marathon.create_client()
+    client.add_app(app_def)
+    shakedown.deployment_wait()
+
+    @retrying.retry(wait_fixed=1000, stop_max_delay=10000)
+    def check_deployment_message():
+        status, stdout = shakedown.run_command_on_master('cat test.txt')
+        assert 'event_stream_attached' in stdout
+        assert 'deployment_info' in stdout
+        assert 'deployment_step_success' in stdout
+
+    check_deployment_message()
+    client.remove_app(app_id, True)
+    shakedown.deployment_wait()
+
+    @retrying.retry(wait_fixed=1000, stop_max_delay=10000)
+    def check_kill_message():
+        status, stdout = shakedown.run_command_on_master('cat test.txt')
+        assert 'Killed' in stdout
+
+    check_kill_message()
+
+
 def test_external_volume():
     volume_name = "marathon-si-test-vol-{}".format(uuid.uuid4().hex)
     app_def = common.external_volume_mesos_app(volume_name)

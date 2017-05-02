@@ -976,38 +976,6 @@ def declined_offer_by_reason(offers, reason):
     return None
 
 
-@pytest.mark.usefixtures("event_fixture")
-def test_event_channel():
-    """ Tests the event channel.  The way events are verified is by streaming the events
-        to a test.txt file.   The fixture ensures the file is removed before and after the test.
-        events checked are connecting, deploying a good task and killing a task.
-    """
-    app_def = common.app_mesos()
-    app_id = app_def['id']
-
-    client = marathon.create_client()
-    client.add_app(app_def)
-    shakedown.deployment_wait()
-
-    @retrying.retry(wait_fixed=1000, stop_max_delay=10000)
-    def check_deployment_message():
-        status, stdout = shakedown.run_command_on_master('cat test.txt')
-        assert 'event_stream_attached' in stdout
-        assert 'deployment_info' in stdout
-        assert 'deployment_step_success' in stdout
-
-    check_deployment_message()
-    client.remove_app(app_id, True)
-    shakedown.deployment_wait()
-
-    @retrying.retry(wait_fixed=1000, stop_max_delay=10000)
-    def check_kill_message():
-        status, stdout = shakedown.run_command_on_master('cat test.txt')
-        assert 'Killed' in stdout
-
-    check_kill_message()
-
-
 def docker_env_set():
     return 'DOCKER_HUB_USERNAME' not in os.environ and 'DOCKER_HUB_PASSWORD' not in os.environ
 
