@@ -1087,8 +1087,11 @@ def test_vip_mesos_cmd(marathon_service_name):
     client.add_app(app_def)
     shakedown.deployment_wait()
 
-    common.assert_http_code('{}:{}'.format(fqn, 10000))
+    @retrying.retry
+    def http_output_check(stop_max_attempt_number=30):
+        common.assert_http_code('{}:{}'.format(fqn, 10000))
 
+    http_output_check()
 
 @dcos_1_9
 def test_vip_docker_bridge_mode(marathon_service_name):
@@ -1115,7 +1118,11 @@ def test_vip_docker_bridge_mode(marathon_service_name):
     client.add_app(app_def)
     shakedown.deployment_wait()
 
-    common.assert_http_code('{}:{}'.format(fqn, 10000))
+    @retrying.retry
+    def http_output_check(stop_max_attempt_number=30):
+        common.assert_http_code('{}:{}'.format(fqn, 10000))
+
+    http_output_check()
 
 
 def get_container_pinger_app(name='pinger'):
