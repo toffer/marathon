@@ -528,7 +528,7 @@ def test_health_check_unhealthy():
 
     client.add_app(app_def)
 
-    @retrying.retry(wait_fixed=1000, stop_max_delay=3000)
+    @retrying.retry(stop_max_attempt_number=30)
     def check_failure_message():
         app = client.get_app('/unhealthy')
         assert app['tasksRunning'] == 1

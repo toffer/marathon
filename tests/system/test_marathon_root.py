@@ -46,7 +46,7 @@ def test_marathon_delete_leader(marathon_service_name):
     print('leader: {}'.format(original_leader))
     common.delete_marathon_path('v2/leader')
 
-    common.wait_for_marathon_up()
+    shakedown.wait_for_service_endpoint(marathon_service_name, timedelta(minutes=5).total_seconds())
 
     @retrying.retry(stop_max_attempt_number=30)
     def marathon_leadership_changed():
@@ -69,7 +69,7 @@ def test_marathon_zk_partition_leader_change(marathon_service_name):
         #  time of the zk block
         time.sleep(5)
 
-    common.wait_for_marathon_up()
+    shakedown.wait_for_service_endpoint(marathon_service_name, timedelta(minutes=5).total_seconds())
 
     current_leader = shakedown.marathon_leader_ip()
     assert original_leader != current_leader
@@ -86,7 +86,7 @@ def test_marathon_master_partition_leader_change(marathon_service_name):
         #  time of the master block
         time.sleep(timedelta(minutes=1.5).total_seconds())
 
-    common.wait_for_marathon_up()
+    shakedown.wait_for_service_endpoint(marathon_service_name, timedelta(minutes=5).total_seconds())
 
     current_leader = shakedown.marathon_leader_ip()
     assert original_leader != current_leader
