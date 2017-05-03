@@ -21,6 +21,31 @@ class ReadinessCheckIntegrationTest extends AkkaIntegrationTest with EmbeddedMar
   "ReadinessChecks" should {
     "A deployment of an application with readiness checks (no health) does finish when the plan is ready" in {
       deploy(serviceProxy("/readynohealth".toTestPath, "phase(block1!,block2!,block3!)", withHealth = false), continue = true)
+
+      //      Given("An application service")
+      //      val app = appProxy("/readynohealth".toTestPath, "v1", instances = 1, healthCheck = None)
+      //        .copy(readinessChecks = Seq(ReadinessCheck(
+      //          name = "ready",
+      //          portName = "http",
+      //          path = "/readu",
+      //          intervalSeconds = 2,
+      //          timeoutSeconds = 1,
+      //          preserveLastResponse = true))
+      //        )
+      //      val result = marathon.createAppV2(app)
+      //      result.code should be (201) withClue (result.entityString)
+      //      When("The ServiceMock is up")
+      //      val serviceFacade = ServiceMockFacade(marathon.tasks(service.id.toPath).value)(_.launched)
+      //
+      //      while (continue && serviceFacade.plan().code != 200) {
+      //        When("We continue on block until the plan is ready")
+      //        val deployments = marathon.listDeploymentsForBaseGroup().value
+      //        deployments should have size 1 withClue (s"Expected 1 deployment but found ${deployments}")
+      //        serviceFacade.continue()
+      //      }
+      //
+      //      Then("The deployment should finish")
+      //      waitForDeployment(result)
     }
 
     "A deployment of an application with readiness checks and health does finish when health checks succeed and plan is ready" in {

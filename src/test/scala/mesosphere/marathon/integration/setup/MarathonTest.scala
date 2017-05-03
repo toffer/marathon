@@ -2,6 +2,7 @@ package mesosphere.marathon
 package integration.setup
 
 import java.io.File
+import java.net.{ URLDecoder, URLEncoder }
 import java.nio.file.Files
 import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -249,14 +250,14 @@ trait MarathonTest extends StrictLogging with ScalaFutures with Eventually {
       }
 
       get {
-        path("health" / Segments) { uriPath =>
+        path(Segment / Segment / IntNumber / "health") { (uriEncodedAppId, versionId, port) =>
           import PathId._
-          val (path, remaining) = uriPath.splitAt(uriPath.size - 2)
-          val (versionId, port) = (remaining.head, remaining.tail.head.toInt)
-          val appId = path.mkString("/").toRootPath
+          val appId = URLDecoder.decode(uriEncodedAppId, "UTF-8").toRootPath
 
           def instance = healthChecks(_.find { c => c.appId == appId && c.versionId == versionId && c.port == port })
+
           def definition = healthChecks(_.find { c => c.appId == appId && c.versionId == versionId && c.port == 0 })
+
           val state = instance.orElse(definition).fold(true)(_.healthy)
 
           logger.info(s"Received health check request: app=$appId, version=$versionId appMockPort=$port reply=$state")
@@ -265,6 +266,8 @@ trait MarathonTest extends StrictLogging with ScalaFutures with Eventually {
           } else {
             complete(HttpResponse(status = StatusCodes.InternalServerError))
           }
+        } ~ path(Segment / Segment / IntNumber / "ready") { (uriEncodedAppId, versionId, port) =>
+          complete(HttpResponse(status = StatusCodes.OK))
         } ~ path(Remaining) { path =>
           require(false, s"$path was unmatched!")
           complete(HttpResponse(status = StatusCodes.InternalServerError))
@@ -311,8 +314,9 @@ trait MarathonTest extends StrictLogging with ScalaFutures with Eventually {
 
     val projectDir = sys.props.getOrElse("user.dir", ".")
     val appMock: File = new File(projectDir, "src/test/python/app_mock.py")
+    val encodedAppId = URLEncoder.encode(appId.toString, "UTF-8")
     val cmd = Some(s"""echo APP PROXY $$MESOS_TASK_ID RUNNING; ${appMock.getAbsolutePath} """ +
-      s"""$$PORT0 $appId $versionId http://127.0.0.1:${healthEndpoint.localAddress.getPort}/health$appId/$versionId""")
+      s"""$$PORT0 $appId $versionId http://127.0.0.1:${healthEndpoint.localAddress.getPort}/$encodedAppId/$versionId""")
 
     App(
       id = appId.toString,
@@ -329,8 +333,9 @@ trait MarathonTest extends StrictLogging with ScalaFutures with Eventually {
     val projectDir = sys.props.getOrElse("user.dir", ".")
     val containerDir = "/opt/marathon"
 
+    val encodedAppId = URLEncoder.encode(appId.toString, "UTF-8")
     val cmd = Some("""echo APP PROXY $$MESOS_TASK_ID RUNNING; /opt/marathon/python/app_mock.py """ +
-      s"""$$PORT0 $appId $versionId http://127.0.0.1:${healthEndpoint.localAddress.getPort}/health$appId/$versionId""")
+      s"""$$PORT0 $appId $versionId http://127.0.0.1:${healthEndpoint.localAddress.getPort}/health/$encodedAppId/$versionId""")
 
     App(
       id = appId.toString,
