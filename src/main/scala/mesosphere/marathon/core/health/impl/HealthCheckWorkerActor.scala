@@ -56,7 +56,7 @@ class HealthCheckWorkerActor(implicit mat: Materializer) extends Actor with Stri
           case (hc: MarathonHttpHealthCheck, Some(port)) =>
             hc.protocol match {
               case Protos.HealthCheckDefinition.Protocol.HTTPS => https(instance, hc, host, port)
-              case Protos.HealthCheckDefinition.Protocol.HTTP => http(instance, hc, "localhost", port) //host, port)
+              case Protos.HealthCheckDefinition.Protocol.HTTP => http(instance, hc, host, port)
               case invalidProtocol: Protos.HealthCheckDefinition.Protocol =>
                 Future.failed {
                   val message = s"Health check failed: HTTP health check contains invalid protocol: $invalidProtocol"
