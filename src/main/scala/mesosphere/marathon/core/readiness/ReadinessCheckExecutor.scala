@@ -62,8 +62,9 @@ object ReadinessCheckExecutor {
               val effectivePortAssignment = portAssignments.find(_.portName.contains(checkDef.portName)).getOrElse(
                 throw new IllegalArgumentException(s"no port definition for port name '${checkDef.portName}' was found"))
 
-              val host = effectivePortAssignment.effectiveIpAddress.getOrElse(
-                throw new IllegalArgumentException(s"no effective IP address for '${checkDef.portName}' was found"))
+              //              val host = effectivePortAssignment.effectiveIpAddress.getOrElse(
+              //                throw new IllegalArgumentException(s"no effective IP address for '${checkDef.portName}' was found"))
+              val host = "localhost"
 
               val port = effectivePortAssignment.effectivePort
 

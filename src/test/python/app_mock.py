@@ -96,7 +96,7 @@ def make_handler(appId, version, base_url):
                 logging.debug("Got GET request")
                 if self.path == '/ping':
                     return self.handle_ping()
-                elif self.path == '/ready'
+                elif self.path == '/ready':
                     return self.check_readiness()
                 else:
                     return self.check_health()
@@ -131,7 +131,7 @@ if __name__ == "__main__":
     HTTPServer.allow_reuse_address = True
     httpd = HTTPServer(("", port), make_handler(appId, version, url))
     msg = "AppMock[%s %s]: %s has taken the stage at port %d. "\
-          "Will query %s for health status."
+          "Will query %s for health and readiness status."
     logging.info(msg, appId, version, taskId, port, url)
 
     try:

@@ -16,40 +16,102 @@ import org.scalatest.concurrent.Eventually
 class ReadinessCheckIntegrationTest extends AkkaIntegrationTest with EmbeddedMarathonTest with Eventually {
 
   //clean up state before running the test case
-  after(cleanUp())
+  before(cleanUp())
+
+  private val ramlHealthCheck = AppHealthCheck(
+    protocol = AppHealthCheckProtocol.Http,
+    gracePeriodSeconds = 20,
+    intervalSeconds = 1,
+    maxConsecutiveFailures = Int.MaxValue,
+    portIndex = Some(0),
+    delaySeconds = 2
+  )
+
+  private val ramlReadinessCheck = ReadinessCheck(
+    name = "ready",
+    portName = "http",
+    path = "/ready",
+    intervalSeconds = 2,
+    timeoutSeconds = 1,
+    preserveLastResponse = true
+  )
 
   "ReadinessChecks" should {
-    "A deployment of an application with readiness checks (no health) does finish when the plan is ready" in {
-      deploy(serviceProxy("/readynohealth".toTestPath, "phase(block1!,block2!,block3!)", withHealth = false), continue = true)
+    "A deployment of an application with readiness checks (no health) does finish when the app is ready" in {
 
-      //      Given("An application service")
-      //      val app = appProxy("/readynohealth".toTestPath, "v1", instances = 1, healthCheck = None)
-      //        .copy(readinessChecks = Seq(ReadinessCheck(
-      //          name = "ready",
-      //          portName = "http",
-      //          path = "/readu",
-      //          intervalSeconds = 2,
-      //          timeoutSeconds = 1,
-      //          preserveLastResponse = true))
-      //        )
-      //      val result = marathon.createAppV2(app)
-      //      result.code should be (201) withClue (result.entityString)
-      //      When("The ServiceMock is up")
-      //      val serviceFacade = ServiceMockFacade(marathon.tasks(service.id.toPath).value)(_.launched)
-      //
-      //      while (continue && serviceFacade.plan().code != 200) {
-      //        When("We continue on block until the plan is ready")
-      //        val deployments = marathon.listDeploymentsForBaseGroup().value
-      //        deployments should have size 1 withClue (s"Expected 1 deployment but found ${deployments}")
-      //        serviceFacade.continue()
-      //      }
-      //
-      //      Then("The deployment should finish")
-      //      waitForDeployment(result)
+      Given("An application service")
+      val app = appProxy("/readynohealth".toTestPath, "v1", instances = 1, healthCheck = None)
+        .copy(
+          portDefinitions = Some(Seq(PortDefinition(name = Some("http")))),
+          readinessChecks = Seq(ramlReadinessCheck)
+        )
+
+      And("The app is not ready")
+      val readinessCheck = appProxyReadinessCheck(PathId(app.id), "v1")
+      readinessCheck.isReady.set(false)
+
+      When("The app is created")
+      val result = marathon.createAppV2(app)
+      result.code should be (201) withClue (result.entityString)
+
+      (1 to 3).foreach { _ =>
+
+        Then("The readiness check is called")
+        readinessCheck.wasCalled.set(false)
+        eventually {
+          readinessCheck.wasCalled.get should be(true)
+        }
+
+        And("There is one ongoing deployment")
+        val deployments = marathon.listDeploymentsForBaseGroup().value
+        deployments should have size 1 withClue (s"Expected 1 deployment but found ${deployments}")
+      }
+
+      When("The app is ready")
+      readinessCheck.isReady.set(true)
+
+      Then("The deployment should finish")
+      waitForDeployment(result)
     }
 
     "A deployment of an application with readiness checks and health does finish when health checks succeed and plan is ready" in {
-      deploy(serviceProxy("/readyhealth".toTestPath, "phase(block1!,block2!,block3!)", withHealth = true), continue = true)
+      Given("An application service")
+      val app = appProxy("/readyhealth".toTestPath, "v1", instances = 1, healthCheck = None)
+        .copy(
+          healthChecks = Set(ramlHealthCheck),
+          portDefinitions = Some(Seq(PortDefinition(name = Some("http")))),
+          readinessChecks = Seq(ramlReadinessCheck)
+
+        )
+
+      And("The app is not ready and not healthy")
+      //TODO start with state - false
+      val check = appProxyCheck(PathId(app.id), "v1", state = true)
+      val readinessCheck = appProxyReadinessCheck(PathId(app.id), "v1")
+      readinessCheck.isReady.set(false)
+
+      When("The app is created")
+      val result = marathon.createAppV2(app)
+      result.code should be (201) withClue (result.entityString)
+
+      (1 to 3).foreach { _ =>
+
+        Then("The readiness check is called")
+        readinessCheck.wasCalled.set(false)
+        eventually {
+          readinessCheck.wasCalled.get should be(true)
+        }
+
+        And("There is one ongoing deployment")
+        val deployments = marathon.listDeploymentsForBaseGroup().value
+        deployments should have size 1 withClue (s"Expected 1 deployment but found ${deployments}")
+      }
+
+      When("The app is ready and healthy")
+      readinessCheck.isReady.set(true)
+
+      Then("The deployment should finish")
+      waitForDeployment(result)
     }
 
     "A deployment of an application without readiness checks and health does finish when health checks succeed" in {
