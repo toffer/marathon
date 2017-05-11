@@ -1,23 +1,39 @@
 /**
- * The meat of a Jenkins build. Master/Release/Submit do use coverage,
- * for speed of development, review jobs do not.
+ * The meat of a Jenkins build.
  */
 
+GITTAG = ""
+GITBRANCH = ""
+
+def gitTag() {
+  if (GITTAG == "") {
+    GITTAG = sh(script: "git describe --tags --always", returnStdout: true).trim().replaceFirst("v", "")
+  }
+  return GITTAG
+}
+
+def gitBranch() {
+  if (GITBRANCH == "") {
+    GITBRANCH = env.BRANCH_NAME
+  }
+  return GITBRANCH
+}
+
 def is_phabricator_build() {
-  return (env.REVISION_ID != null && !env.REVISION_ID.isEmpty())
+  return (env.REVISION_ID != null && env.REVISION_ID != "")
 }
 
 def is_submit_request() {
   return env.TARGET_BRANCH != null && env.TARGET_BRANCH != ""
 }
 
-def is_release_build(gitTag) {
+def is_release_build() {
   if (is_phabricator_build()) {
     return false
-  } else if (gitTag.contains("SNAPSHOT") || gitTag.contains("g")) {
+  } else if (gitTag().contains("SNAPSHOT") || gitTag().contains("g")) {
     return false
   } else if (env.BRANCH_NAME == null) {
-    return sh(script: "git rev-parse --abbrev-ref HEAD", returnStdout: true).startsWith("releases/")
+    return gitBranch().startsWith("releases/")
   } else if (env.BRANCH_NAME.startsWith("releases/")) {
     return true
   }
@@ -52,14 +68,6 @@ def phabricator(method, args) {
 // PHID is expected to be set as an environment variable
 def phabricator_test_results(status) {
   sh """jq -s add target/phabricator-test-reports/*.json | jq '{buildTargetPHID: "$PHID", type: "$status", unit: . }' | arc call-conduit harbormaster.sendmessage """
-  return this
-}
-
-// Archive test coverage data on Jenkins. With MARATHON-7271 the data will be
-// archived on S3.
-def archive_test_coverage(name, dir) {
-  archiveArtifacts artifacts: "${dir}/**", allowEmptyArchive: true
-  stash(name: "${name}-scoverage", include: "${dir}/scoverage-report/scoverage.csv")
   return this
 }
 
@@ -108,8 +116,7 @@ def previousBuildFailed() {
 }
 
 def is_master_or_release() {
-  return (!is_phabricator_build() && (is_release_build(sh(returnStdout: true, script: "git describe --tags --always").trim().replaceFirst("v", "")) ||
-    sh(script: "git rev-parse --abbrev-ref HEAD", returnStdout: true) == "master"))
+  return !is_phabricator_build() && (is_release_build() || gitBranch() == "master")
 }
 
 /**
@@ -266,11 +273,7 @@ def compile_and_test() {
   try {
     withCredentials([file(credentialsId: 'DOT_M2_SETTINGS', variable: 'DOT_M2_SETTINGS')]) {
       withEnv(['RUN_DOCKER_INTEGRATION_TESTS=true', 'RUN_MESOS_INTEGRATION_TESTS=true']) {
-        if (is_master_or_release() || is_submit_request()) {
-          sh "sudo -E sbt clean scapegoat doc coverage testWithCoverageReport"
-        } else {
-          sh "sudo -E sbt clean scapegoat doc test"
-        }
+        sh "sudo -E sbt clean scapegoat doc test"
         sh """if git diff --quiet; then echo 'No format issues detected'; else echo 'Patch has Format Issues'; exit 1; fi"""
       }
     }
@@ -281,11 +284,6 @@ def compile_and_test() {
         },
         test_results: {
           junit(allowEmptyResults: true, testResults: 'target/test-reports/*.xml')
-        },
-        archive_coverage: {
-          if (is_master_or_release() || is_submit_request()) {
-            archive_test_coverage("Test", "target/test-coverage")
-          }
         }
     )
   }
@@ -296,23 +294,12 @@ def integration_test() {
     timeout(time: 60, unit: 'MINUTES') {
       withCredentials([file(credentialsId: 'DOT_M2_SETTINGS', variable: 'DOT_M2_SETTINGS')]) {
         withEnv(['RUN_DOCKER_INTEGRATION_TESTS=true', 'RUN_MESOS_INTEGRATION_TESTS=true']) {
-          if (is_master_or_release() || is_submit_request()) {
-            sh """sudo -E sbt '; clean; coverage; integration:testWithCoverageReport ' """
-          } else {
-            sh "sudo -E sbt integration:test"
-          }
+          sh "sudo -E sbt integration:test"
         }
       }
     }
   } finally {
-    parallel(
-        test_results: { junit allowEmptyResults: true, testResults: 'target/test-reports/*integration/*.xml' },
-        coverage: {
-          if (is_master_or_release() || is_submit_request()) {
-            archive_test_coverage("integration test", "target/integration-coverage")
-          }
-        }
-    )
+    junit allowEmptyResults: true, testResults: 'target/test-reports/*integration/*.xml'
   }
 }
 
@@ -326,11 +313,7 @@ def unstable_test() {
     timeout(time: 60, unit: 'MINUTES') {
       withCredentials([file(credentialsId: 'DOT_M2_SETTINGS', variable: 'DOT_M2_SETTINGS')]) {
         withEnv(['RUN_DOCKER_INTEGRATION_TESTS=true', 'RUN_MESOS_INTEGRATION_TESTS=true']) {
-          if (is_master_or_release() || is_submit_request()) {
-            sh "sudo -E sbt '; clean; coverage; unstable:testWithCoverageReport; unstable-integration:testWithCoverageReport' "
-          } else {
-            sh "sudo -E sbt unstable:test unstable-integration:test"
-          }
+          sh "sudo -E sbt unstable:test unstable-integration:test"
         }
       }
     }
@@ -344,18 +327,12 @@ def unstable_test() {
         },
         unstable_integration_results: {
           junit allowEmptyResults: true, testResults: 'target/test-reports/unstable/*.xml'
-        },
-        unstable_coverage: {
-          if (is_master_or_release() || is_submit_request()) {
-            archive_test_coverage("Unstable Test", "target/unstable-coverage")
-            archive_test_coverage("Unstable Integration Test", "target/unstable-integration-coverage")
-          }
         }
     )
   }
 }
 
-def publish_to_s3(gitTag) {
+def publish_to_s3() {
   storageClass = "STANDARD_IA"
   // TODO: we could use marathon-artifacts for both profile and buckets, but we would
   // need to either setup a bucket policy for public-read on the s3://marathon-artifacts/snapshots
@@ -367,14 +344,14 @@ def publish_to_s3(gitTag) {
   upload_on_failure = true
   // manage_artifacts == true will put the artifacts in snapshots/job/{pipelinename}/{branch/?}/{build_number}
   manage_artifacts = is_phabricator_build()
-  if (is_release_build(gitTag)) {
+  if (is_release_build()) {
     storageClass = "STANDARD"
-    bucket = "downloads.mesosphere.io/marathon/${gitTag}"
+    bucket = "downloads.mesosphere.io/marathon/${gitTag()}"
     upload_on_failure = false
     manage_artifacts = false
   }
-  sh "sudo sh -c 'sha1sum target/universal/marathon-${gitTag}.txz > target/universal/marathon-${gitTag}.txz.sha1'"
-  sh "sudo sh -c 'sha1sum target/universal/marathon-${gitTag}.zip > target/universal/marathon-${gitTag}.zip.sha1'"
+  sh "sudo sh -c 'sha1sum target/universal/marathon-${gitTag()}.txz > target/universal/marathon-${gitTag()}.txz.sha1'"
+  sh "sudo sh -c 'sha1sum target/universal/marathon-${gitTag()}.zip > target/universal/marathon-${gitTag()}.zip.sha1'"
   step([
       $class: 'S3BucketPublisher',
       entries: [
@@ -431,26 +408,25 @@ def publish_to_s3(gitTag) {
 }
 
 def publish_artifacts() {
-  gitTag = sh(returnStdout: true, script: "git describe --tags --always").trim().replaceFirst("v", "")
 
   parallel(
       // Only create latest-dev snapshot for master.
       // TODO: Docker 1.12 doesn't support tag -f and the jenkins docker plugin still passes it in.
       docker_image: {
         if (env.BRANCH_NAME == "master" && !is_phabricator_build()) {
-          sh "docker tag mesosphere/marathon:${gitTag} mesosphere/marathon:latest-dev"
+          sh "docker tag mesosphere/marathon:${gitTag()} mesosphere/marathon:latest-dev"
           docker.withRegistry("https://index.docker.io/v1/", "docker-hub-credentials") {
             sh "docker push mesosphere/marathon:latest-dev"
           }
-        } else if (env.PUBLISH_SNAPSHOT == "true" || (is_release_build(gitTag) && !is_phabricator_build())) {
+        } else if (env.PUBLISH_SNAPSHOT == "true" || (is_release_build() && !is_phabricator_build())) {
           docker.withRegistry("https://index.docker.io/v1/", "docker-hub-credentials") {
-            sh "docker push mesosphere/marathon:${gitTag}"
+            sh "docker push mesosphere/marathon:${gitTag()}"
           }
         }
       },
       s3: {
         if (env.PUBLISH_SNAPSHOT == "true" || is_master_or_release()) {
-          publish_to_s3(gitTag)
+          publish_to_s3()
         }
       },
 
@@ -459,10 +435,10 @@ def publish_artifacts() {
           sshagent(credentials: ['0f7ec9c9-99b2-4797-9ed5-625572d5931d']) {
             // we rsync a directory first, then copy over the binaries into specific folders so
             // that the cron job won't try to publish half-uploaded RPMs/DEBs
-            sh """ssh -o StrictHostKeyChecking=no pkgmaintainer@repo1.hw.ca1.mesosphere.com "mkdir -p ~/repo/incoming/marathon-${gitTag}" """
-            sh "rsync -avzP target/packages/*${gitTag}* target/packages/*.rpm pkgmaintainer@repo1.hw.ca1.mesosphere.com:~/repo/incoming/marathon-${gitTag}"
-            sh """ssh -o StrictHostKeyChecking=no -o BatchMode=yes pkgmaintainer@repo1.hw.ca1.mesosphere.com "env GIT_TAG=${gitTag} bash -s --" < scripts/publish_packages.sh """
-            sh """ssh -o StrictHostKeyChecking=no -o BatchMode=yes pkgmaintainer@repo1.hw.ca1.mesosphere.com "rm -rf ~/repo/incoming/marathon-${gitTag}" """
+            sh """ssh -o StrictHostKeyChecking=no pkgmaintainer@repo1.hw.ca1.mesosphere.com "mkdir -p ~/repo/incoming/marathon-${gitTag()}" """
+            sh "rsync -avzP target/packages/*${gitTag()}* target/packages/*.rpm pkgmaintainer@repo1.hw.ca1.mesosphere.com:~/repo/incoming/marathon-${gitTag()}"
+            sh """ssh -o StrictHostKeyChecking=no -o BatchMode=yes pkgmaintainer@repo1.hw.ca1.mesosphere.com "env GIT_TAG=${gitTag()} bash -s --" < scripts/publish_packages.sh """
+            sh """ssh -o StrictHostKeyChecking=no -o BatchMode=yes pkgmaintainer@repo1.hw.ca1.mesosphere.com "rm -rf ~/repo/incoming/marathon-${gitTag()}" """
           }
         }
       }
@@ -472,13 +448,7 @@ def publish_artifacts() {
 
 def package_binaries() {
   sh("sudo rm -f target/packages/*")
-  // master, release and submit request builds have coverage turned on.
-  // we don't want to accidentally publish coverage instrumented builds.
-  if (is_master_or_release() || is_submit_request()) {
-    sh("sudo sbt clean packageAll")
-  } else {
-    sh("sudo sbt packageAll")
-  }
+  sh("sudo sbt packageAll")
   return this
 }
 
